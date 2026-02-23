@@ -4,42 +4,446 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Monitoring Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-        }
-        .container {
-            text-align: center;
-            padding: 2rem;
-            background: rgba(255,255,255,0.1);
-            border-radius: 20px;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-        }
-        h1 { font-size: 3rem; margin-bottom: 1rem; }
-        p { font-size: 1.2rem; opacity: 0.9; }
-        .status {
-            display: inline-block;
-            margin-top: 1rem;
-            padding: 0.5rem 1.5rem;
-            background: rgba(255,255,255,0.2);
-            border-radius: 50px;
-            font-size: 0.9rem;
-        }
+        .metric-card { transition: transform 0.2s; }
+        .metric-card:hover { transform: translateY(-2px); }
+        .chart-container { position: relative; height: 250px; }
+        @keyframes pulse-green { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .live-indicator { animation: pulse-green 2s infinite; }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>📊 System Monitoring Dashboard</h1>
-        <p>Monitor system resources (CPU, Memory, Disk) for distributed systems</p>
-        <div class="status">🚧 Under Construction</div>
-    </div>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <nav class="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center">
+                    <i class="fas fa-chart-line text-green-400 text-xl mr-2"></i>
+                    <span class="text-xl font-bold text-green-400">System Monitoring</span>
+                    <span class="ml-2 flex items-center">
+                        <span class="w-2 h-2 bg-green-400 rounded-full mr-1 live-indicator"></span>
+                        <span class="text-xs text-green-400">LIVE</span>
+                    </span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <select id="time-range" onchange="changeTimeRange()" class="bg-gray-700 text-white px-3 py-2 rounded text-sm border border-gray-600">
+                        <option value="1h">Last 1 Hour</option>
+                        <option value="6h">Last 6 Hours</option>
+                        <option value="24h">Last 24 Hours</option>
+                        <option value="7d">Last 7 Days</option>
+                    </select>
+                    <button onclick="toggleRefresh()" id="refresh-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium">
+                        <i class="fas fa-sync-alt mr-1"></i> Auto-Refresh ON
+                    </button>
+                    <button onclick="exportCSV()" class="text-gray-300 hover:text-white px-3 py-2 rounded text-sm">
+                        <i class="fas fa-download mr-1"></i> Export CSV
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Metric Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="metric-card bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="text-gray-400"><i class="fas fa-microchip text-2xl text-blue-400"></i></div>
+                    <span class="text-xs text-green-400 font-mono" id="cpu-trend">+0%</span>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="cpu-value">0%</div>
+                <div class="text-sm text-gray-400">CPU Usage</div>
+                <div class="mt-3 h-1 bg-gray-700 rounded overflow-hidden">
+                    <div id="cpu-bar" class="h-full bg-blue-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="metric-card bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="text-gray-400"><i class="fas fa-memory text-2xl text-purple-400"></i></div>
+                    <span class="text-xs text-green-400 font-mono" id="mem-trend">+0%</span>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="mem-value">0%</div>
+                <div class="text-sm text-gray-400">Memory Usage</div>
+                <div class="mt-3 text-xs text-gray-500" id="mem-detail">0 / 0 GB</div>
+                <div class="mt-3 h-1 bg-gray-700 rounded overflow-hidden">
+                    <div id="mem-bar" class="h-full bg-purple-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="metric-card bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="text-gray-400"><i class="fas fa-network-wired text-2xl text-cyan-400"></i></div>
+                    <span class="text-xs text-green-400 font-mono" id="net-trend">+0%</span>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="net-value">0</div>
+                <div class="text-sm text-gray-400">Network I/O</div>
+                <div class="mt-3 text-xs text-gray-500">MB/s total</div>
+                <div class="mt-3 h-1 bg-gray-700 rounded overflow-hidden">
+                    <div id="net-bar" class="h-full bg-cyan-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="metric-card bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="text-gray-400"><i class="fas fa-hdd text-2xl text-yellow-400"></i></div>
+                    <span class="text-xs text-green-400 font-mono" id="disk-trend">+0%</span>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="disk-value">0%</div>
+                <div class="text-sm text-gray-400">Disk Usage</div>
+                <div class="mt-3 text-xs text-gray-500" id="disk-detail">0 / 0 GB</div>
+                <div class="mt-3 h-1 bg-gray-700 rounded overflow-hidden">
+                    <div id="disk-bar" class="h-full bg-yellow-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- CPU Chart -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold text-white"><i class="fas fa-microchip mr-2 text-blue-400"></i>CPU Usage History</h3>
+                    <span class="text-xs text-gray-400">Real-time</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="cpu-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Memory Chart -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold text-white"><i class="fas fa-memory mr-2 text-purple-400"></i>Memory Usage History</h3>
+                    <span class="text-xs text-gray-400">Real-time</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="mem-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Network Chart -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold text-white"><i class="fas fa-network-wired mr-2 text-cyan-400"></i>Network I/O</h3>
+                    <span class="text-xs text-gray-400">MB/s</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="net-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Disk Chart -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold text-white"><i class="fas fa-hdd mr-2 text-yellow-400"></i>Disk Usage</h3>
+                    <span class="text-xs text-gray-400">GB used</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="disk-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Process List -->
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-semibold text-white"><i class="fas fa-tasks mr-2 text-red-400"></i>Top Processes</h3>
+                <button onclick="refreshProcesses()" class="text-gray-400 hover:text-white text-sm">
+                    <i class="fas fa-sync-alt mr-1"></i> Refresh
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-gray-400 border-b border-gray-700">
+                        <tr>
+                            <th class="py-2 px-3">PID</th>
+                            <th class="py-2 px-3">Process</th>
+                            <th class="py-2 px-3">CPU %</th>
+                            <th class="py-2 px-3">Memory %</th>
+                            <th class="py-2 px-3">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="process-list" class="text-gray-300">
+                        <!-- Processes will be populated -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-gray-800 border-t border-gray-700 mt-8 py-4">
+        <div class="max-w-7xl mx-auto px-4 text-center text-gray-400 text-sm">
+            <i class="fas fa-info-circle mr-1"></i>
+            System Monitoring Dashboard - Simulated data for demonstration
+        </div>
+    </footer>
+
+    <script>
+        // State
+        let charts = {};
+        let metricsHistory = {
+            cpu: [],
+            memory: [],
+            network: [],
+            disk: []
+        };
+        let maxDataPoints = 60; // 60 seconds default
+        let autoRefresh = true;
+        let refreshInterval = null;
+
+        // Mock data generators
+        function generateMetrics() {
+            const now = new Date();
+            return {
+                timestamp: now,
+                cpu: Math.random() * 30 + 10, // 10-40%
+                memory: Math.random() * 20 + 40, // 40-60%
+                memoryTotal: 16, // GB
+                memoryUsed: 0, // will compute
+                network: Math.random() * 50 + 10, // MB/s
+                disk: Math.random() * 10 + 30, // % used
+                diskTotal: 500, // GB
+                diskUsed: 0 // will compute
+            };
+        }
+
+        function computeDerived(metrics) {
+            metrics.memoryUsed = (metrics.memory / 100) * metrics.memoryTotal;
+            metrics.diskUsed = (metrics.disk / 100) * metrics.diskTotal;
+            return metrics;
+        }
+
+        // Initialize charts
+        function initCharts() {
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        type: 'category',
+                        grid: { color: '#374151' },
+                        ticks: { color: '#9ca3af', maxTicksLimit: 6 }
+                    },
+                    y: {
+                        grid: { color: '#374151' },
+                        ticks: { color: '#9ca3af' },
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            };
+
+            charts.cpu = new Chart(document.getElementById('cpu-chart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'CPU %', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.4 }] },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, max: 100 } } }
+            });
+
+            charts.memory = new Chart(document.getElementById('mem-chart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Memory %', data: [], borderColor: '#a855f7', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: true, tension: 0.4 }] },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, max: 100 } } }
+            });
+
+            charts.network = new Chart(document.getElementById('net-chart'), {
+                type: 'bar',
+                data: { labels: [], datasets: [{ label: 'Network MB/s', data: [], backgroundColor: '#06b6d4' }] },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, max: 100 } } }
+            });
+
+            charts.disk = new Chart(document.getElementById('disk-chart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Disk %', data: [], borderColor: '#eab308', backgroundColor: 'rgba(234, 179, 8, 0.1)', fill: true, tension: 0.4 }] },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, max: 100 } } }
+            });
+        }
+
+        // Update UI with metrics
+        function updateUI(metrics) {
+            // Update cards
+            document.getElementById('cpu-value').textContent = metrics.cpu.toFixed(1) + '%';
+            document.getElementById('cpu-bar').style.width = metrics.cpu + '%';
+            
+            document.getElementById('mem-value').textContent = metrics.memory.toFixed(1) + '%';
+            document.getElementById('mem-detail').textContent = `${metrics.memoryUsed.toFixed(1)} / ${metrics.memoryTotal} GB`;
+            document.getElementById('mem-bar').style.width = metrics.memory + '%';
+            
+            document.getElementById('net-value').textContent = metrics.network.toFixed(1);
+            document.getElementById('net-bar').style.width = Math.min(metrics.network, 100) + '%';
+            
+            document.getElementById('disk-value').textContent = metrics.disk.toFixed(1) + '%';
+            document.getElementById('disk-detail').textContent = `${metrics.diskUsed.toFixed(1)} / ${metrics.diskTotal} GB`;
+            document.getElementById('disk-bar').style.width = metrics.disk + '%';
+
+            // Update trends (simple: compare to previous)
+            updateTrend('cpu-trend', metrics.cpu, metricsHistory.cpu);
+            updateTrend('mem-trend', metrics.memory, metricsHistory.memory);
+            updateTrend('net-trend', metrics.network, metricsHistory.network);
+            updateTrend('disk-trend', metrics.disk, metricsHistory.disk);
+        }
+
+        function updateTrend(elementId, current, history) {
+            const el = document.getElementById(elementId);
+            if (history.length < 2) {
+                el.textContent = '+0%';
+                el.className = 'text-xs text-gray-400 font-mono';
+                return;
+            }
+            const prev = history[history.length - 2];
+            const diff = current - prev;
+            const percent = (diff / prev * 100).toFixed(1);
+            el.textContent = (diff >= 0 ? '+' : '') + percent + '%';
+            el.className = 'text-xs font-mono ' + (diff >= 0 ? 'text-red-400' : 'text-green-400');
+        }
+
+        // Add data point to history
+        function addDataPoint(metrics) {
+            const timeLabel = metrics.timestamp.toLocaleTimeString();
+            
+            ['cpu', 'memory', 'network', 'disk'].forEach(key => {
+                metricsHistory[key].push(metrics[key]);
+                if (metricsHistory[key].length > maxDataPoints) {
+                    metricsHistory[key].shift();
+                }
+                // Update chart
+                const chart = charts[key];
+                if (chart) {
+                    chart.data.labels.push(timeLabel);
+                    chart.data.datasets[0].data.push(metrics[key]);
+                    if (chart.data.labels.length > maxDataPoints) {
+                        chart.data.labels.shift();
+                        chart.data.datasets[0].data.shift();
+                    }
+                    chart.update('none'); // no animation for performance
+                }
+            });
+        }
+
+        // Main update loop
+        function updateMetrics() {
+            const metrics = computeDerived(generateMetrics());
+            updateUI(metrics);
+            addDataPoint(metrics);
+        }
+
+        // Controls
+        function toggleRefresh() {
+            autoRefresh = !autoRefresh;
+            const btn = document.getElementById('refresh-btn');
+            if (autoRefresh) {
+                btn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Auto-Refresh ON';
+                btn.classList.remove('bg-gray-600');
+                btn.classList.add('bg-blue-600');
+                startAutoRefresh();
+            } else {
+                btn.innerHTML = '<i class="fas fa-pause mr-1"></i> Auto-Refresh OFF';
+                btn.classList.remove('bg-blue-600');
+                btn.classList.add('bg-gray-600');
+                stopAutoRefresh();
+            }
+        }
+
+        function startAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(updateMetrics, 2000); // 2 seconds
+        }
+
+        function stopAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval);
+        }
+
+        function changeTimeRange() {
+            const range = document.getElementById('time-range').value;
+            switch (range) {
+                case '1h': maxDataPoints = 60; break;
+                case '6h': maxDataPoints = 180; break;
+                case '24h': maxDataPoints = 720; break;
+                case '7d': maxDataPoints = 5040; break;
+            }
+            // Clear charts to restart with new range
+            Object.values(charts).forEach(chart => {
+                chart.data.labels = [];
+                chart.data.datasets[0].data = [];
+                chart.update();
+            });
+            metricsHistory = { cpu: [], memory: [], network: [], disk: [] };
+        }
+
+        function exportCSV() {
+            const headers = ['timestamp', 'cpu', 'memory', 'network', 'disk'];
+            const rows = metricsHistory.cpu.map((_, i) => [
+                new Date().toISOString(), // placeholder
+                metricsHistory.cpu[i],
+                metricsHistory.memory[i],
+                metricsHistory.network[i],
+                metricsHistory.disk[i]
+            ]);
+            
+            const csvContent = [headers, ...rows].map(e => e.join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'system-metrics.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Mock processes
+        function generateProcesses() {
+            const processes = [
+                { pid: 1, name: 'systemd', cpu: 0.1, memory: 0.5, status: 'running' },
+                { pid: 234, name: 'picoclaw', cpu: 2.5, memory: 3.2, status: 'running' },
+                { pid: 896, name: 'nginx', cpu: 0.8, memory: 1.5, status: 'running' },
+                { pid: 1561, name: 'postgres', cpu: 5.2, memory: 8.1, status: 'running' },
+                { pid: 2225, name: 'redis', cpu: 1.1, memory: 2.3, status: 'running' },
+                { pid: 2934, name: 'node', cpu: 12.5, memory: 15.2, status: 'running' },
+                { pid: 3594, name: 'python3', cpu: 8.3, memory: 10.5, status: 'running' },
+                { pid: 4247, name: 'docker', cpu: 3.4, memory: 5.6, status: 'running' },
+                { pid: 4938, name: 'prometheus', cpu: 4.2, memory: 6.8, status: 'running' },
+                { pid: 5940, name: 'grafana', cpu: 2.1, memory: 3.4, status: 'running' }
+            ];
+            return processes.sort((a, b) => b.cpu - a.cpu);
+        }
+
+        function renderProcesses() {
+            const tbody = document.getElementById('process-list');
+            tbody.innerHTML = generateProcesses().map(p => `
+                <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                    <td class="py-2 px-3 font-mono text-gray-400">${p.pid}</td>
+                    <td class="py-2 px-3 font-medium">${p.name}</td>
+                    <td class="py-2 px-3 ${p.cpu > 10 ? 'text-red-400' : 'text-gray-300'}">${p.cpu.toFixed(1)}%</td>
+                    <td class="py-2 px-3 ${p.memory > 10 ? 'text-red-400' : 'text-gray-300'}">${p.memory.toFixed(1)}%</td>
+                    <td class="py-2 px-3"><span class="px-2 py-0.5 bg-green-900 text-green-300 text-xs rounded">${p.status}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function refreshProcesses() {
+            renderProcesses();
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            updateMetrics(); // initial
+            startAutoRefresh();
+            renderProcesses();
+            setInterval(renderProcesses, 5000); // refresh process list every 5s
+        });
+    </script>
 </body>
 </html>
